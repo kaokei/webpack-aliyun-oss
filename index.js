@@ -97,6 +97,15 @@ class WebpackAliyunOss {
 		}
 	}
 
+  async isExistObject(name) {
+    try {
+      await this.client.head(name);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
 	async upload(files, inWebpack, outputPath = '') {
 		const {
 			dist,
@@ -152,25 +161,54 @@ class WebpackAliyunOss {
 
 			const headers = setHeaders && setHeaders(filePath) || {}
 			let result
-			try {
-				result = await this.client.put(ossFilePath, filePath, {
-					timeout,
-					headers: !overwrite ? Object.assign(headers, { 'x-oss-forbid-overwrite': true }) : headers
-				})
-			} catch (err) {
-				if (err.name === 'FileAlreadyExistsError') {
-					this.filesIgnored.push(filePath)
-					return Promise.resolve(fPath.blue.underline + ' ready exists in oss, ignored');
-				}
 
-				this.filesErrors.push({
-					file: fPath,
-					err: { code: err.code, message: err.message, name: err.name }
-				});
+      if(overwrite) {
+        try {
+          result = await this.client.put(ossFilePath, filePath, {
+            timeout,
+            headers,
+          })
+        } catch (err) {
+          if (err.name === 'FileAlreadyExistsError') {
+            this.filesIgnored.push(filePath)
+            return Promise.resolve(fPath.blue.underline + ' ready exists in oss, ignored');
+          }
 
-				const errorMsg = `Failed to upload ${fPath.underline}: ` + `${err.name}-${err.code}: ${err.message}`.red;
-				return Promise.reject(new Error(errorMsg))
-			}
+          this.filesErrors.push({
+            file: fPath,
+            err: { code: err.code, message: err.message, name: err.name }
+          });
+
+          const errorMsg = `Failed to upload ${fPath.underline}: ` + `${err.name}-${err.code}: ${err.message}`.red;
+          return Promise.reject(new Error(errorMsg))
+        }
+      } else {
+        const isFileExist = await this.isExistObject(ossFilePath);
+        if(isFileExist) {
+          this.filesIgnored.push(filePath)
+          return Promise.resolve(fPath.blue.underline + ' ready exists in oss, ignored');
+        } else {
+          try {
+            result = await this.client.put(ossFilePath, filePath, {
+              timeout,
+              headers: Object.assign(headers, { 'x-oss-forbid-overwrite': true })
+            })
+          } catch (err) {
+            if (err.name === 'FileAlreadyExistsError') {
+              this.filesIgnored.push(filePath)
+              return Promise.resolve(fPath.blue.underline + ' ready exists in oss, ignored');
+            }
+
+            this.filesErrors.push({
+              file: fPath,
+              err: { code: err.code, message: err.message, name: err.name }
+            });
+
+            const errorMsg = `Failed to upload ${fPath.underline}: ` + `${err.name}-${err.code}: ${err.message}`.red;
+            return Promise.reject(new Error(errorMsg))
+          }
+        }
+      }
 
 			result.url = this.normalize(result.url);
 			this.filesUploaded.push(fPath)
